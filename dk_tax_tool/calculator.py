@@ -19,10 +19,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from collections import defaultdict
 
+from . import config
 from .config import (
     TAX_YEAR, TAX_YEAR_START, TAX_YEAR_END,
     AKTIEINDKOMST_LOW_RATE, AKTIEINDKOMST_HIGH_RATE,
-    PROGRESSIONSGRAENSE, MARRIED_DOUBLE_THRESHOLD,
+    PROGRESSIONSGRAENSE,
     DANISH_ISIN_PREFIX,
 )
 from .parser import Trade, Dividend, Interest, ParsedData
@@ -249,7 +250,9 @@ def calculate(parsed: ParsedData, fx: FXRateStore) -> TaxResult:
                 cost_basis = pool.sell(trade.shares)
             except ValueError as e:
                 errors.append(str(e))
-                cost_basis = 0.0
+                # Skip this disposal entirely — we can't compute gain/loss
+                # without a valid cost basis. Don't create a phantom gain.
+                continue
 
             proceeds = trade.total_dkk
             if proceeds <= 0:
@@ -312,8 +315,12 @@ def calculate(parsed: ParsedData, fx: FXRateStore) -> TaxResult:
             else:
                 div.amount_dkk = div.amount
         except ValueError as e:
-            errors.append(f"Dividend FX error for {div.ticker}: {e}")
-            div.amount_dkk = div.amount
+            errors.append(
+                f"CRITICAL FX error for dividend {div.ticker} on {div.timestamp.date()}: {e} "
+                f"— Dividend of {div.amount} {div.amount_currency} NOT converted. "
+                f"Load rate data covering this date."
+            )
+            div.amount_dkk = 0.0
 
         # Convert withholding tax to DKK
         try:
@@ -325,7 +332,7 @@ def calculate(parsed: ParsedData, fx: FXRateStore) -> TaxResult:
                 div.withholding_tax_dkk = div.withholding_tax
         except ValueError as e:
             errors.append(f"WHT FX error for {div.ticker}: {e}")
-            div.withholding_tax_dkk = div.withholding_tax
+            div.withholding_tax_dkk = 0.0
 
         dividends_summary.append(DividendSummary(
             timestamp=div.timestamp,
@@ -355,7 +362,7 @@ def calculate(parsed: ParsedData, fx: FXRateStore) -> TaxResult:
                 intr.amount_dkk = intr.amount
         except ValueError as e:
             errors.append(f"Interest FX error: {e}")
-            intr.amount_dkk = intr.amount
+            intr.amount_dkk = 0.0
 
         interest_summary.append(InterestSummary(
             timestamp=intr.timestamp,
@@ -380,6 +387,23 @@ def calculate(parsed: ParsedData, fx: FXRateStore) -> TaxResult:
 
     skat.rubrik_68_gains_losses = net_gain_loss
     skat.interest_income_dkk = sum(i.amount_dkk for i in interest_summary)
+
+    # --- Validation warnings ---
+    critical_errors = [e for e in errors if "CRITICAL" in e]
+    if critical_errors:
+        warnings.append(
+            f"WARNING: {len(critical_errors)} critical FX conversion error(s) found. "
+            f"Tax numbers are UNRELIABLE until you provide rate data covering all "
+            f"trade dates. See ERRORS section above."
+        )
+
+    # Check for zero-cost buys (indicates FX failure)
+    for ticker, pool in pools.items():
+        if pool.total_shares > 0.0001 and pool.total_cost_dkk <= 0:
+            warnings.append(
+                f"WARNING: {ticker} has {pool.total_shares:.4f} shares but 0 DKK "
+                f"cost basis — likely missing FX rates for purchase dates."
+            )
 
     # --- Step 6: Tax estimate ---
     tax_estimate = _estimate_tax(skat)
@@ -421,8 +445,12 @@ def _convert_trades_to_dkk(
             else:
                 trade.total_dkk = fx.convert_to_dkk(trade.total, total_cur, trade_date)
         except ValueError as e:
-            errors.append(f"FX error for {trade.ticker} total on {trade_date}: {e}")
-            trade.total_dkk = trade.total  # fallback
+            errors.append(
+                f"CRITICAL FX error for {trade.ticker} on {trade_date}: {e} "
+                f"— Total of {trade.total} {total_cur} could NOT be converted to DKK. "
+                f"Cost basis will be WRONG. Load rate data covering this date."
+            )
+            trade.total_dkk = 0.0  # Zero, not the foreign amount — forces error visibility
 
         # Convert price per share to DKK
         try:
@@ -435,7 +463,7 @@ def _convert_trades_to_dkk(
                 )
         except ValueError as e:
             errors.append(f"FX error for {trade.ticker} price on {trade_date}: {e}")
-            trade.price_dkk = trade.price_per_share
+            trade.price_dkk = 0.0
 
 
 def _estimate_tax(skat: SkatBoxes) -> TaxEstimate:
@@ -452,7 +480,7 @@ def _estimate_tax(skat: SkatBoxes) -> TaxEstimate:
     """
     total = skat.total_aktieindkomst
     threshold = PROGRESSIONSGRAENSE
-    if MARRIED_DOUBLE_THRESHOLD:
+    if config.MARRIED_DOUBLE_THRESHOLD:
         threshold *= 2
 
     if total <= 0:
