@@ -27,6 +27,19 @@ class FXRateStore:
         # {currency: {date_str: rate_as_dkk_per_1_unit}}
         self._rates: dict[str, dict[str, float]] = {}
 
+    def load_nationalbanken_tsv(self, filepath: str) -> None:
+        """Load directly from the transposed Nationalbanken TSV format.
+
+        This is the raw export from https://nationalbanken.statistikbank.dk/909
+        where dates are columns and currencies are rows, rates per 100 units.
+        """
+        from .convert_nationalbanken import convert
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files = convert(filepath, tmpdir)
+            for f in files:
+                self.load_csv(f)
+
     def load_csv(self, filepath: str, currency: str | None = None) -> None:
         """Load exchange rates from a CSV file.
 
@@ -35,6 +48,7 @@ class FXRateStore:
         - Single-currency: columns Date, Rate (currency must be specified or
           inferred from filename like 'GBP.csv')
         - Nationalbanken format: may have rates per 100 units
+        - Nationalbanken transposed TSV: auto-detected and converted
         """
         path = Path(filepath)
 
@@ -42,6 +56,12 @@ class FXRateStore:
             # Sniff delimiter
             sample = f.read(2048)
             f.seek(0)
+
+            # Auto-detect transposed Nationalbanken TSV format
+            if "M01D" in sample or "M02D" in sample or "M03D" in sample:
+                f.close()
+                self.load_nationalbanken_tsv(filepath)
+                return
 
             delimiter = ";"  # Nationalbanken often uses semicolons
             if sample.count(",") > sample.count(";"):
