@@ -1,0 +1,7 @@
+Date,Ticker,Name,ISIN,Gross Amount (DKK),Withholding Tax (DKK),Net Amount (DKK),Original Amount,Original Currency,Danish/Foreign,Skat Rubrik
+2025-09-23,UNH,UnitedHealth,US91324P1021,118.95,21.01,97.93,13.91,GBP,Foreign,67
+2025-11-03,FCX,Freeport-McMoRan,US35671D8570,16.53,2.92,13.61,1.94,GBP,Foreign,67
+2025-11-26,NOMD,Nomad Foods,VGG6564A1057,24.17,0.00,24.17,2.84,GBP,Foreign,67
+2025-12-17,POWL,Powell Industries,US7391281067,15.90,2.80,13.10,1.87,GBP,Foreign,67
+2025-12-19,UWS,Waste Management,US94106L1098,13.39,2.39,11.00,1.57,GBP,Foreign,67
+2025-12-19,ELV,Elevance Health,US0367521038,157.53,27.81,129.71,18.47,GBP,Foreign,67
