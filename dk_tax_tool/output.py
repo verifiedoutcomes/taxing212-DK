@@ -103,7 +103,7 @@ def print_full_report(result: TaxResult) -> str:
 
         if dk_divs:
             lines.append("")
-            lines.append("  DANISH DIVIDENDS (Rubrik 66)")
+            lines.append("  DANISH DIVIDENDS (Rubrik 61)")
             lines.append(
                 f"  {'Date':<12} {'Ticker':<8} {'Name':<25} "
                 f"{'Gross DKK':>12} {'WHT DKK':>10} {'Net DKK':>12}"
@@ -122,7 +122,7 @@ def print_full_report(result: TaxResult) -> str:
 
         if foreign_divs:
             lines.append("")
-            lines.append("  FOREIGN DIVIDENDS (Rubrik 67)")
+            lines.append("  FOREIGN DIVIDENDS (Udenlandsk indkomst — Rubrik 414)")
             lines.append(
                 f"  {'Date':<12} {'Ticker':<8} {'Name':<25} "
                 f"{'Gross DKK':>12} {'WHT DKK':>10} {'Net DKK':>12} "
@@ -210,33 +210,48 @@ def print_full_report(result: TaxResult) -> str:
 
 
 def _print_skat_boxes(skat: SkatBoxes) -> str:
+    w = 66
+    def box_line(text: str) -> str:
+        return f"  │ {text:<{w-4}} │"
+
     lines = []
     lines.append("")
-    lines.append(f"  ┌─────────────────────────────────────────────────────────────────┐")
-    lines.append(f"  │  Rubrik 66 — Udbytte af danske aktier mv.                      │")
-    lines.append(f"  │  (Dividends from Danish shares)                                 │")
-    lines.append(f"  │  Enter: {_dkk(skat.rubrik_66_dk_dividends):>52} │")
-    lines.append(f"  ├─────────────────────────────────────────────────────────────────┤")
-    lines.append(f"  │  Rubrik 67 — Udbytte af udenlandske aktier mv.                 │")
-    lines.append(f"  │  (Dividends from foreign shares)                                │")
-    lines.append(f"  │  Enter: {_dkk(skat.rubrik_67_foreign_dividends):>52} │")
-    lines.append(f"  ├─────────────────────────────────────────────────────────────────┤")
-    lines.append(f"  │  Rubrik 68 — Gevinst/tab ved salg af aktier                    │")
-    lines.append(f"  │  (Net gain/loss from sale of shares)                            │")
-    lines.append(f"  │  Enter: {_dkk(skat.rubrik_68_gains_losses):>52} │")
-    lines.append(f"  ├─────────────────────────────────────────────────────────────────┤")
-    lines.append(f"  │  Foreign withholding tax paid (for lempelse/credit claim):      │")
-    lines.append(f"  │  {_dkk(skat.foreign_tax_paid_dkk):>62} │")
-    lines.append(f"  └─────────────────────────────────────────────────────────────────┘")
+    lines.append("  ┌" + "─" * (w - 2) + "┐")
+    lines.append(box_line("RUBRIK 66 — Gevinst/tab på aktier, optaget til handel"))
+    lines.append(box_line("på reguleret marked (net gain/loss, ALL listed shares)"))
+    lines.append(box_line(f"Enter: {_dkk(skat.rubrik_66_gains_losses)}"))
+    lines.append("  ├" + "─" * (w - 2) + "┤")
+    lines.append(box_line("UDENLANDSK INDKOMST section (foreign broker/depot):"))
+    lines.append(box_line("Rubrik 414 — Udbytte af udenlandske aktier,"))
+    lines.append(box_line("optaget til handel, i udenlandsk depot (GROSS)"))
+    lines.append(box_line(f"Enter: {_dkk(skat.rubrik_414_foreign_dividends)}"))
+    lines.append("  ├" + "─" * (w - 2) + "┤")
+    lines.append(box_line("Rubrik 496 — Udenlandsk udbytteskat (creditable,"))
+    lines.append(box_line("capped at 15% treaty rate for US shares)"))
+    lines.append(box_line(f"Enter: {_dkk(skat.foreign_wht_creditable_dkk)}"))
+    if skat.foreign_wht_paid_dkk > skat.foreign_wht_creditable_dkk + 0.005:
+        lines.append(box_line(f"(Actually withheld: {_dkk(skat.foreign_wht_paid_dkk)} —"))
+        lines.append(box_line("excess above 15% is NOT creditable in DK)"))
+    if skat.rubrik_61_dk_dividends > 0:
+        lines.append("  ├" + "─" * (w - 2) + "┤")
+        lines.append(box_line("RUBRIK 61 — Udbytte af danske aktier (listed,"))
+        lines.append(box_line("dansk udbytteskat withheld)"))
+        lines.append(box_line(f"Enter: {_dkk(skat.rubrik_61_dk_dividends)}"))
+    lines.append("  └" + "─" * (w - 2) + "┘")
 
     if skat.interest_income_dkk > 0:
         lines.append("")
         lines.append(f"  Interest income (kapitalindkomst, NOT aktieindkomst):")
         lines.append(f"  {_dkk(skat.interest_income_dkk)}")
-        lines.append(f"  → Report in Rubrik 30 (Renteindtægter af indestående i bank mv.)")
+        lines.append(f"  → Foreign interest: report under 'Udenlandsk indkomst' →")
+        lines.append(f"    renteindtægter fra udlandet (kapitalindkomst).")
 
     lines.append("")
     lines.append(f"  Total aktieindkomst: {_dkk(skat.total_aktieindkomst)}")
+    lines.append("")
+    lines.append("  NOTE: Rubrik numbers follow the 2024/2025 oplysningsskema layout.")
+    lines.append("  Field numbering in TastSelv can change — match on the Danish")
+    lines.append("  field NAMES above when you file.")
     return "\n".join(lines)
 
 
@@ -273,45 +288,54 @@ def _print_skat_guide(skat: SkatBoxes) -> str:
     lines.append("  " + "-" * 60)
     lines.append("")
     lines.append("  1. Log in to skat.dk with MitID")
-    lines.append("  2. Go to 'Ret årsopgørelsen' (Edit tax return)")
-    lines.append("  3. Find section: 'Aktieindkomst'")
+    lines.append("  2. Go to 'Ret årsopgørelsen / oplysningsskemaet' (Edit tax return)")
+    lines.append("  3. You need BOTH the 'Aktier' section and the")
+    lines.append("     'Udenlandsk indkomst' section (Trading212 = foreign depot).")
     lines.append("")
-    lines.append("  RUBRIK 66 — Udbytte af danske aktier:")
-    lines.append(f"    → Enter: {_dkk(skat.rubrik_66_dk_dividends)}")
-    lines.append("    This is the GROSS dividend amount before any tax.")
-    lines.append("    Danish companies auto-report, so check pre-filled.")
+    lines.append("  RUBRIK 66 — Gevinst/tab på aktier optaget til handel på")
+    lines.append("  reguleret marked:")
+    lines.append(f"    → Enter: {_dkk(skat.rubrik_66_gains_losses)}")
+    lines.append("    Net gain/loss from ALL your listed share sales (US, EU, UK...),")
+    lines.append("    computed with gennemsnitsmetoden (average cost) in DKK.")
+    if skat.rubrik_66_gains_losses < 0:
+        lines.append("    NOTE: This is a LOSS — enter it as a negative amount.")
+        lines.append("    Losses on listed shares are KILDEARTSBEGRÆNSEDE: they only")
+        lines.append("    offset dividends/gains from other LISTED shares, and unused")
+        lines.append("    losses carry forward automatically.")
     lines.append("")
-    lines.append("  RUBRIK 67 — Udbytte af udenlandske aktier:")
-    lines.append(f"    → Enter: {_dkk(skat.rubrik_67_foreign_dividends)}")
-    lines.append("    This is the GROSS dividend in DKK (before WHT).")
-    lines.append("    Convert each dividend to DKK at the exchange rate")
-    lines.append("    on the payment date (Nationalbanken rate).")
+    lines.append("  UDENLANDSK INDKOMST → 'Udbytte af udenlandske aktier' (Rubrik 414):")
+    lines.append(f"    → Enter: {_dkk(skat.rubrik_414_foreign_dividends)}")
+    lines.append("    GROSS foreign dividends in DKK (before withholding tax),")
+    lines.append("    converted at the Nationalbanken rate on each payment date.")
     lines.append("")
-    lines.append("  RUBRIK 68 — Gevinst/tab ved salg af aktier:")
-    lines.append(f"    → Enter: {_dkk(skat.rubrik_68_gains_losses)}")
-    lines.append("    This is the NET gain or loss from all share sales.")
-    lines.append("    Use gennemsnitsmetoden (average cost) for cost basis.")
-    if skat.rubrik_68_gains_losses < 0:
-        lines.append("    NOTE: This is a LOSS. Enter as negative.")
-        lines.append("    Losses on listed shares offset gains on listed shares.")
-        lines.append("    Unused losses carry forward automatically.")
-    lines.append("")
-    if skat.foreign_tax_paid_dkk > 0:
-        lines.append("  FOREIGN TAX CREDIT (Lempelse):")
-        lines.append(f"    Total foreign WHT paid: {_dkk(skat.foreign_tax_paid_dkk)}")
-        lines.append("    → On skat.dk, look for 'Lempelse for dobbeltbeskatning'")
-        lines.append("      or 'Nedslag for udenlandsk skat' under aktieindkomst.")
-        lines.append("    → The credit is limited to the Danish tax on the")
-        lines.append("      foreign income (per country, per treaty).")
-        lines.append("    → For US dividends with W-8BEN: 15% WHT is generally")
-        lines.append("      creditable against Danish tax.")
+    if skat.foreign_wht_paid_dkk > 0:
+        lines.append("  UDENLANDSK INDKOMST → 'Betalt udbytteskat i udlandet' (Rubrik 496):")
+        lines.append(f"    → Enter: {_dkk(skat.foreign_wht_creditable_dkk)}")
+        if skat.foreign_wht_paid_dkk > skat.foreign_wht_creditable_dkk + 0.005:
+            lines.append(f"    (Trading212 actually withheld {_dkk(skat.foreign_wht_paid_dkk)};")
+            lines.append("    Denmark only credits up to the treaty rate — 15% for US.")
+            lines.append("    The excess must be reclaimed from the foreign tax authority.)")
+        lines.append("    Skat gives credit (lempelse) for this against Danish tax")
+        lines.append("    on the same dividends.")
+        lines.append("")
+    if skat.rubrik_61_dk_dividends > 0:
+        lines.append("  RUBRIK 61 — Udbytte af danske aktier:")
+        lines.append(f"    → Enter: {_dkk(skat.rubrik_61_dk_dividends)}")
+        lines.append("    Usually pre-filled for Danish shares — verify the number.")
         lines.append("")
     if skat.interest_income_dkk > 0:
-        lines.append("  INTEREST (Separate from aktieindkomst!):")
+        lines.append("  INTEREST (separate from aktieindkomst!):")
         lines.append(f"    Trading212 interest earned: {_dkk(skat.interest_income_dkk)}")
-        lines.append("    → This is KAPITALINDKOMST, not aktieindkomst.")
-        lines.append("    → Enter in Rubrik 30 (Renteindtægter) or similar.")
+        lines.append("    → This is KAPITALINDKOMST. Foreign interest goes under")
+        lines.append("      'Udenlandsk indkomst' → renteindtægter fra udlandet.")
         lines.append("")
+    lines.append("  IMPORTANT — FOREIGN BROKER OBLIGATIONS:")
+    lines.append("    Trading212 does not auto-report to Skattestyrelsen. You must")
+    lines.append("    declare the account yourself, and loss deduction on listed")
+    lines.append("    shares requires that Skat is informed of the share purchases")
+    lines.append("    (aktieavancebeskatningslovens § 14) — file the trade details")
+    lines.append("    with your return (use the exported CSVs from this tool).")
+    lines.append("")
 
     return "\n".join(lines)
 
@@ -357,7 +381,7 @@ def generate_dividends_csv(result: TaxResult, filepath: str) -> None:
                 f"{d.original_amount:.2f}",
                 d.original_currency,
                 "Danish" if d.is_danish else "Foreign",
-                "66" if d.is_danish else "67",
+                "61" if d.is_danish else "414",
             ])
 
 
@@ -369,11 +393,12 @@ def generate_summary_csv(result: TaxResult, filepath: str) -> None:
     with open(filepath, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Item", "Rubrik", "Amount (DKK)"])
-        writer.writerow(["Udbytte af danske aktier", "66", f"{skat.rubrik_66_dk_dividends:.2f}"])
-        writer.writerow(["Udbytte af udenlandske aktier", "67", f"{skat.rubrik_67_foreign_dividends:.2f}"])
-        writer.writerow(["Gevinst/tab ved salg af aktier", "68", f"{skat.rubrik_68_gains_losses:.2f}"])
-        writer.writerow(["Foreign WHT paid (lempelse)", "-", f"{skat.foreign_tax_paid_dkk:.2f}"])
-        writer.writerow(["Interest (kapitalindkomst)", "30", f"{skat.interest_income_dkk:.2f}"])
+        writer.writerow(["Gevinst/tab paa aktier, optaget til handel paa reguleret marked", "66", f"{skat.rubrik_66_gains_losses:.2f}"])
+        writer.writerow(["Udbytte af udenlandske aktier, udenlandsk depot (GROSS)", "414", f"{skat.rubrik_414_foreign_dividends:.2f}"])
+        writer.writerow(["Udenlandsk udbytteskat, creditable (max 15% treaty)", "496", f"{skat.foreign_wht_creditable_dkk:.2f}"])
+        writer.writerow(["Udenlandsk udbytteskat, actually withheld", "-", f"{skat.foreign_wht_paid_dkk:.2f}"])
+        writer.writerow(["Udbytte af danske aktier", "61", f"{skat.rubrik_61_dk_dividends:.2f}"])
+        writer.writerow(["Interest, foreign (kapitalindkomst)", "-", f"{skat.interest_income_dkk:.2f}"])
         writer.writerow(["", "", ""])
         writer.writerow(["Total aktieindkomst", "-", f"{est.total_aktieindkomst:.2f}"])
         writer.writerow(["Estimated tax (gross)", "-", f"{est.total_tax:.2f}"])

@@ -16,8 +16,14 @@ AKTIEINDKOMST_LOW_RATE = 0.27
 AKTIEINDKOMST_HIGH_RATE = 0.42
 
 # Progressionsgrænsen for 2025 (per person)
-# 2024 was 61,000 DKK. 2025 is 62,600 DKK.
-PROGRESSIONSGRAENSE = 62_600
+# 2023: 58,900 / 2024: 61,000 / 2025: 63,300 DKK (personskattelovens § 20 regulering)
+PROGRESSIONSGRAENSE = 63_300
+
+# Max creditable foreign dividend withholding tax under most Danish tax
+# treaties (e.g. US-DK DBO art. 10): 15% of the gross dividend.
+# Anything withheld above this must be reclaimed from the foreign tax
+# authority, not credited in Denmark.
+TREATY_WHT_CREDIT_CAP = 0.15
 
 # For married couples filing jointly, the threshold doubles if one spouse
 # doesn't use their full allowance. Set to True if applicable.
@@ -81,12 +87,19 @@ T212_COLUMNS_NEW = {
 # This is detected automatically from the CSV but can be overridden.
 ACCOUNT_CURRENCY = None  # Auto-detect
 
-# Skat.dk rubrik mapping
+# Skat.dk rubrik mapping (oplysningsskema / årsopgørelse)
+# NOTE: For a Danish resident holding shares via a FOREIGN broker
+# (Trading212), foreign dividends and foreign tax go in the
+# "Udenlandsk indkomst" section of TastSelv, not the main dividend boxes.
 SKAT_RUBRIKKER = {
-    66: "Udbytte af danske aktier mv. (Dividends from Danish shares)",
-    67: "Udbytte af udenlandske aktier mv. (Dividends from foreign shares)",
-    68: "Gevinst/tab ved salg af aktier (Gains/losses from sale of shares)",
-    # Rubrik 69 is for losses on shares in certain cases
+    61: "Udbytte af danske aktier, optaget til handel på reguleret marked, "
+        "hvor der er indeholdt dansk udbytteskat",
+    66: "Gevinst/tab på aktier, optaget til handel på reguleret marked "
+        "(net gain/loss on all listed shares, Danish and foreign)",
+    414: "Udenlandsk indkomst: Udbytte af udenlandske aktier optaget til "
+         "handel på reguleret marked, i udenlandsk depot",
+    496: "Udenlandsk indkomst: Betalt udenlandsk udbytteskat "
+         "(creditable, max treaty rate — 15% for US)",
 }
 
 # ISIN country prefixes for identifying Danish vs foreign securities

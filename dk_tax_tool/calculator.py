@@ -23,7 +23,7 @@ from . import config
 from .config import (
     TAX_YEAR, TAX_YEAR_START, TAX_YEAR_END,
     AKTIEINDKOMST_LOW_RATE, AKTIEINDKOMST_HIGH_RATE,
-    PROGRESSIONSGRAENSE,
+    PROGRESSIONSGRAENSE, TREATY_WHT_CREDIT_CAP,
     DANISH_ISIN_PREFIX,
 )
 from .parser import Trade, Dividend, Interest, ParsedData
@@ -144,19 +144,29 @@ class HoldingSummary:
 
 @dataclass
 class SkatBoxes:
-    """Amounts to enter in skat.dk rubrikker."""
-    rubrik_66_dk_dividends: float = 0.0        # Udbytte af danske aktier
-    rubrik_67_foreign_dividends: float = 0.0   # Udbytte af udenlandske aktier
-    rubrik_68_gains_losses: float = 0.0        # Gevinst/tab ved salg
-    foreign_tax_paid_dkk: float = 0.0          # For credit claim (lempelse)
-    interest_income_dkk: float = 0.0           # Interest on cash (kapitalindkomst)
+    """Amounts to enter in skat.dk rubrikker.
+
+    Correct boxes for a Danish resident using a foreign broker (T212):
+      - Rubrik 61:  dividends from DANISH listed shares (dansk udbytteskat withheld)
+      - Rubrik 66:  net gain/loss on ALL listed shares (Danish + foreign)
+      - Rubrik 414: foreign dividends, listed shares in foreign depot
+                    (in the "Udenlandsk indkomst" section of TastSelv)
+      - Rubrik 496: foreign withholding tax paid — creditable portion is
+                    capped at the treaty rate (15% for US) of the gross dividend
+    """
+    rubrik_61_dk_dividends: float = 0.0         # Udbytte af danske aktier
+    rubrik_66_gains_losses: float = 0.0         # Gevinst/tab, noterede aktier
+    rubrik_414_foreign_dividends: float = 0.0   # Udbytte, udenlandske aktier
+    foreign_wht_paid_dkk: float = 0.0           # Actually withheld abroad
+    foreign_wht_creditable_dkk: float = 0.0     # Capped at treaty rate (rubrik 496)
+    interest_income_dkk: float = 0.0            # Interest on cash (kapitalindkomst)
 
     @property
     def total_aktieindkomst(self) -> float:
         return (
-            self.rubrik_66_dk_dividends
-            + self.rubrik_67_foreign_dividends
-            + self.rubrik_68_gains_losses
+            self.rubrik_61_dk_dividends
+            + self.rubrik_414_foreign_dividends
+            + self.rubrik_66_gains_losses
         )
 
 
@@ -376,16 +386,27 @@ def calculate(parsed: ParsedData, fx: FXRateStore) -> TaxResult:
 
     for ds in dividends_summary:
         if ds.is_danish:
-            skat.rubrik_66_dk_dividends += ds.gross_amount_dkk
+            skat.rubrik_61_dk_dividends += ds.gross_amount_dkk
         else:
-            skat.rubrik_67_foreign_dividends += ds.gross_amount_dkk
-            skat.foreign_tax_paid_dkk += ds.withholding_tax_dkk
+            skat.rubrik_414_foreign_dividends += ds.gross_amount_dkk
+            skat.foreign_wht_paid_dkk += ds.withholding_tax_dkk
+            # Credit (lempelse) is capped at the treaty rate per dividend
+            cap = ds.gross_amount_dkk * TREATY_WHT_CREDIT_CAP
+            skat.foreign_wht_creditable_dkk += min(ds.withholding_tax_dkk, cap)
+            if ds.withholding_tax_dkk > cap * 1.01:
+                warnings.append(
+                    f"{ds.ticker} dividend on {ds.date_str}: foreign tax withheld "
+                    f"({ds.withholding_tax_dkk:.2f} DKK) exceeds the 15% treaty cap "
+                    f"({cap:.2f} DKK). Only the capped amount is creditable in "
+                    f"Denmark; reclaim the excess from the foreign tax authority "
+                    f"(and check your W-8BEN status with Trading212)."
+                )
 
     total_gain = sum(d.gain_loss_dkk for d in disposals if d.gain_loss_dkk > 0)
     total_loss = sum(abs(d.gain_loss_dkk) for d in disposals if d.gain_loss_dkk < 0)
     net_gain_loss = total_gain - total_loss
 
-    skat.rubrik_68_gains_losses = net_gain_loss
+    skat.rubrik_66_gains_losses = net_gain_loss
     skat.interest_income_dkk = sum(i.amount_dkk for i in interest_summary)
 
     # --- Validation warnings ---
@@ -501,8 +522,9 @@ def _estimate_tax(skat: SkatBoxes) -> TaxEstimate:
     tax_high = taxable_high * AKTIEINDKOMST_HIGH_RATE
     gross_tax = tax_low + tax_high
 
-    # Foreign tax credit (lempelse) - can offset Danish tax on foreign income
-    credit = min(skat.foreign_tax_paid_dkk, gross_tax)
+    # Foreign tax credit (lempelse): capped per dividend at the treaty rate
+    # (done above), and can never exceed the Danish tax on the income.
+    credit = min(skat.foreign_wht_creditable_dkk, gross_tax)
 
     return TaxEstimate(
         total_aktieindkomst=total,

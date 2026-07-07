@@ -263,8 +263,13 @@ def _process_row_new(row: dict[str, str], data: ParsedData) -> None:
                 total_currency=total_currency,
                 withholding_tax=_safe_float(row.get("Withholding tax", "")),
                 wht_currency=row.get("Currency (Withholding tax)", "").strip(),
-                stamp_duty=_safe_float(row.get("Stamp duty", "")),
-                transaction_fee=_safe_float(row.get("Transaction fee", "")),
+                stamp_duty=_safe_float(
+                    row.get("Stamp duty", "") or row.get("Stamp duty reserve tax", "")
+                ),
+                transaction_fee=_safe_float(
+                    row.get("Transaction fee", "")
+                    or row.get("Currency conversion fee", "")
+                ),
                 notes=row.get("Notes", "").strip(),
                 t212_id=row.get("ID", "").strip(),
             ))
