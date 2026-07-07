@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+test_output/
+*.egg-info/
+.env
+my_data/
